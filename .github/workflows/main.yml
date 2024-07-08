@@ -1,0 +1,84 @@
+name: Cl
+
+on: [push, workflow_dispatch]
+
+jobs:
+  build:
+
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        python-version: [3.6, 3.7, 3.8, 3.9, 3.10]  # List of Python versions to test
+
+    steps:
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pywinauto pyuac requests
+
+    - name: Download and Install MIH Setup
+      run: |
+        python - << EOF
+        import pyuac
+        import time
+        import requests
+        from pywinauto.application import Application
+        from pywinauto.keyboard import send_keys
+
+        url = 'https://myiphide.com/download/MIH_setup.exe'
+        destination = 'MIH_setup.exe'
+
+        # Download the file
+        response = requests.get(url)
+        if response.status_code == 200:
+            with open(destination, 'wb') as f:
+                f.write(response.content)
+            print("File downloaded successfully.")
+        else:
+            print(f"Failed to download file. Status code: {response.status_code}")
+            exit(1)
+
+        def main():
+            # Start the application and automate the setup process
+            try:
+                app = Application().start(destination)
+                time.sleep(3)
+                send_keys("{ENTER}")
+                time.sleep(1)
+                send_keys("{ENTER}")
+                time.sleep(1)
+                send_keys("{ENTER}")
+                time.sleep(15)
+                send_keys("{ENTER}")
+                time.sleep(1)
+                send_keys("{ENTER}")
+            except Exception as e:
+                print(f"Error occurred: {e}")
+
+        if __name__ == '__main__':
+            # Check if running as admin, elevate if necessary
+            if not pyuac.isUserAdmin():
+                pyuac.runAsAdmin()
+            else:
+                main()
+        EOF
+    - name: Download
+      run: Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
+    - name: Extract
+      run: Expand-Archive ngrok.zip
+    - name: Auth
+      run: .\ngrok\ngrok.exe authtoken $Env:NGROK_AUTH_TOKEN
+      env:
+        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+    - name: Enable TS
+      run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server'-name "fDenyTSConnections" -Value 0
+    - run: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+    - run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+    - run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "P@ssw0rd!" -Force)
+    - name: Create Tunnel
+      run: .\ngrok\ngrok.exe tcp 3389
